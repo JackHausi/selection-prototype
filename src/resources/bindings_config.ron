@@ -1,0 +1,7 @@
+(
+  axes: {
+  },
+  actions: {
+      "move": [ [Mouse(Right)] ],
+  },
+)

@@ -1,0 +1,4 @@
+(
+  title: "Simple cursor example",
+  dimensions: Some((600, 600)),
+)
