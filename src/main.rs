@@ -1,37 +1,31 @@
 use amethyst::{
-    assets::{AssetStorage, Handle, Loader, Processor},
+    assets::{AssetStorage, Handle, Loader},
     core::transform::{Transform, TransformBundle},
     ecs::prelude::{
         Component, DenseVecStorage, Entities, Entity, Join, Read, ReadExpect, ReadStorage,
-        Resources, System, SystemData, World, WriteStorage,
+        System, World, WriteStorage,
     },
     input::{InputBundle, InputHandler, StringBindings},
     prelude::*,
     renderer::{
-        camera::Camera,
-        pass::DrawFlat2DDesc,
-        rendy::{
-            factory::Factory,
-            graph::{
-                render::{RenderGroupDesc, SubpassBuilder},
-                GraphBuilder,
-            },
-            hal::{format::Format, image},
-        },
-        sprite::SpriteRender,
-        sprite::SpriteSheet,
+        plugins::{RenderFlat2D, RenderToWindow},
+        RenderingBundle,
         types::DefaultBackend,
-        GraphCreator, ImageFormat, RenderingSystem, SpriteSheetFormat, Texture,
     },
-    ui::{Anchor, Interactable, Selectable, Selected, UiBundle, UiTransform},
+    renderer::{
+        camera::Camera,
+        ImageFormat,
+        sprite::SpriteRender, sprite::SpriteSheet, SpriteSheetFormat, Texture,
+    },
+    ui::{Anchor, Interactable, RenderUi, Selectable, Selected, UiBundle, UiTransform},
     utils::application_root_dir,
-    window::{ScreenDimensions, Window, WindowBundle},
+    window::ScreenDimensions,
 };
 use log::info;
 
 #[derive(Debug)]
 struct SomeObject {
-    ordered_to: Option<(f64, f64)>,
+    ordered_to: Option<(f32, f32)>,
 }
 
 impl Component for SomeObject {
@@ -158,10 +152,10 @@ impl<'s> System<'s> for MouseSystem {
         for (transform, _, mut some_object) in (&transforms, &selected, &mut some_objects).join() {
             if let Some(pressed) = input.action_is_down("move") {
                 if pressed {
-                    let hidpi_factor = screen_dimension.hidpi_factor();
+                    let hidpi_factor = screen_dimension.hidpi_factor() as f32;
                     let (screen_size_x, screen_size_y) = (
-                        screen_dimension.width() as f64 / hidpi_factor,
-                        screen_dimension.height() as f64 / hidpi_factor,
+                        screen_dimension.width() / hidpi_factor,
+                        screen_dimension.height() / hidpi_factor,
                     );
                     some_object.ordered_to = match input.mouse_position() {
                         Some((x, y)) => Some((
@@ -182,23 +176,23 @@ impl<'s> System<'s> for MouseSystem {
         // Move transform and UiTransform if object is ordered to move
         for (transform, mut ui_transform, some_object) in
             (&mut transforms, &mut ui_transforms, &some_objects).join()
-        {
-            if let Some((target_pos_x, target_pos_y)) = some_object.ordered_to {
-                let movement_vec = (
-                    target_pos_x - transform.translation().x.as_f64(),
-                    target_pos_y - transform.translation().y.as_f64(),
-                );
-                let movement_length = 5. * (movement_vec.0.powi(2) + movement_vec.1.powi(2)).sqrt();
-                transform.append_translation_xyz(
-                    movement_vec.0 / movement_length,
-                    movement_vec.1 / movement_length,
-                    0.,
-                );
+            {
+                if let Some((target_pos_x, target_pos_y)) = some_object.ordered_to {
+                    let movement_vec = (
+                        target_pos_x - transform.translation().x,
+                        target_pos_y - transform.translation().y,
+                    );
+                    let movement_length = 5. * (movement_vec.0.powi(2) + movement_vec.1.powi(2)).sqrt();
+                    transform.append_translation_xyz(
+                        movement_vec.0 / movement_length,
+                        movement_vec.1 / movement_length,
+                        0.,
+                    );
 
-                ui_transform.local_x += (movement_vec.0 / movement_length) as f32;
-                ui_transform.local_y += (movement_vec.1 / movement_length) as f32;
+                    ui_transform.local_x += (movement_vec.0 / movement_length) as f32;
+                    ui_transform.local_y += (movement_vec.1 / movement_length) as f32;
+                }
             }
-        }
 
         // Move marker for selected entities transform
         for (some_object, marked) in (&some_objects, &marked_as_selected).join() {
@@ -211,8 +205,8 @@ impl<'s> System<'s> for MouseSystem {
                         .or_insert(Transform::default());
 
                     let movement_vec = (
-                        target_pos_x - marker_transform.translation().x.as_f64(),
-                        target_pos_y - marker_transform.translation().y.as_f64(),
+                        target_pos_x - marker_transform.translation().x,
+                        target_pos_y - marker_transform.translation().y,
                     );
 
                     let movement_length =
@@ -356,94 +350,26 @@ fn main() -> amethyst::Result<()> {
 
     let resources = app_root.join("src/assets/");
     let game_data = GameDataBuilder::default()
-        .with_bundle(WindowBundle::from_config_path(display_config_path))?
+        //.with_bundle(WindowBundle::from_config_path(display_config_path))?
         .with_bundle(
             InputBundle::<StringBindings>::new().with_bindings_from_file(bindings_config_path)?,
         )?
         .with_bundle(TransformBundle::new())?
-        .with_bundle(UiBundle::<DefaultBackend, StringBindings>::new())?
-        .with(
-            Processor::<SpriteSheet>::new(),
-            "sprite_sheet_processor",
-            &[],
-        )
+        .with_bundle(UiBundle::<StringBindings>::new())?
         .with(MouseSystem, "mouse_system", &["input_system"])
         .with(MarkSelectedSystem, "mark_selected_system", &[])
-        .with_thread_local(RenderingSystem::<DefaultBackend, _>::new(
-            ExampleGraph::default(),
-        ));
+        .with_bundle(
+            RenderingBundle::<DefaultBackend>::new()
+                // The RenderToWindow plugin provides all the scaffolding for opening a window and
+                // drawing on it
+                .with_plugin(
+                    RenderToWindow::from_config_path(display_config_path)
+                        .with_clear([0.34, 0.36, 0.52, 1.0]),
+                )
+                .with_plugin(RenderFlat2D::default())
+                .with_plugin(RenderUi::default()),
+        )?;
     let mut game = Application::new(resources, Example, game_data)?;
     game.run();
     Ok(())
-}
-
-#[derive(Default)]
-struct ExampleGraph {
-    dimensions: Option<ScreenDimensions>,
-    surface_format: Option<Format>,
-    dirty: bool,
-}
-
-impl GraphCreator<DefaultBackend> for ExampleGraph {
-    fn rebuild(&mut self, res: &Resources) -> bool {
-        // Rebuild when dimensions change, but wait until at least two frames have the same.
-        let new_dimensions = res.try_fetch::<ScreenDimensions>();
-        use std::ops::Deref;
-        if self.dimensions.as_ref() != new_dimensions.as_ref().map(|d| d.deref()) {
-            self.dirty = true;
-            self.dimensions = new_dimensions.map(|d| d.clone());
-            return false;
-        }
-        return self.dirty;
-    }
-
-    fn builder(
-        &mut self,
-        factory: &mut Factory<DefaultBackend>,
-        res: &Resources,
-    ) -> GraphBuilder<DefaultBackend, Resources> {
-        use amethyst::renderer::rendy::{
-            graph::present::PresentNode,
-            hal::command::{ClearDepthStencil, ClearValue},
-        };
-
-        self.dirty = false;
-        let window = <ReadExpect<'_, Window>>::fetch(res);
-        let surface = factory.create_surface(&window);
-
-        let surface_format = *self
-            .surface_format
-            .get_or_insert_with(|| factory.get_surface_format(&surface));
-        let dimensions = self.dimensions.as_ref().unwrap();
-        let window_kind =
-            image::Kind::D2(dimensions.width() as u32, dimensions.height() as u32, 1, 1);
-
-        let mut graph_builder = GraphBuilder::new();
-        let color = graph_builder.create_image(
-            window_kind,
-            1,
-            surface_format,
-            Some(ClearValue::Color([0.34, 0.36, 0.52, 1.0].into())),
-        );
-
-        let depth = graph_builder.create_image(
-            window_kind,
-            1,
-            Format::D32Sfloat,
-            Some(ClearValue::DepthStencil(ClearDepthStencil(1.0, 0))),
-        );
-
-        let pass = graph_builder.add_node(
-            SubpassBuilder::new()
-                .with_group(DrawFlat2DDesc::new().builder())
-                .with_color(color)
-                .with_depth_stencil(depth)
-                .into_pass(),
-        );
-
-        let _present = graph_builder
-            .add_node(PresentNode::builder(factory, surface, color).with_dependency(pass));
-
-        graph_builder
-    }
 }
