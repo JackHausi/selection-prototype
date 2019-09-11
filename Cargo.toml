@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2018"
 
 [dependencies]
-amethyst = "0.11.1"
+amethyst = "0.12"
 log = "0.4.6"
 
 [features]
